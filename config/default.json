@@ -1,0 +1,12 @@
+{
+    "server": {
+        "host": "localhost",
+        "port": 6389,
+        "systemd_watchdog": true
+    },
+    "storage": {
+        "path": "./bigdis.db",
+        "journal_mode": "wal",
+        "synchronous": "normal"
+    }
+}
