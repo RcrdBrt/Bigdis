@@ -22,7 +22,7 @@ This is the subset of commands it currently implements:
 |`EXISTS`|:heavy_check_mark|
 |`COMMAND`|:wrench:|Placeholder reply only
 |`SELECT`|:heavy_check_mark|
-|`FLUSHDB`|:wrench:|Does what expected, but without ASYNC or SYNC options
+|`FLUSHDB`|:heavy_check_mark:|
 
 Nothing other than the string type has been implemented as of now.
 

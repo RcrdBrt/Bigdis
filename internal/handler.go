@@ -100,7 +100,11 @@ func NewV1Handler() map[string]HandlerFn {
 	}
 
 	m["flushdb"] = func(r *Request) error {
-		if err := storage.FlushDB(r.GetDBNum()); err != nil {
+		if len(r.Args) > 1 {
+			return wrongNumberArgs(r, "flushdb")
+		}
+
+		if err := storage.FlushDB(r.GetDBNum(), r.Args); err != nil {
 			return err
 		}
 

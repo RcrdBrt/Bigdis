@@ -2,9 +2,11 @@ package storage
 
 import (
 	"bigdis/config"
+	"bigdis/utils"
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -80,11 +82,44 @@ func NewDB(dbNum int) error {
 	return nil
 }
 
-func FlushDB(dbNum int) error {
-	_, err := DB.Exec(fmt.Sprintf("DROP TABLE bigdis_%d", dbNum))
+func FlushDB(dbNum int, args [][]byte) error {
+	dbOp, err := startDBOperation(nil)
 	if err != nil {
 		return err
 	}
+
+	sync := true
+	if len(args) > 0 {
+		if strings.ToLower(string(args[0])) == "async" {
+			sync = false
+		} else if strings.ToLower(string(args[0])) != "sync" {
+			return utils.ErrWrongSyntax
+		}
+	}
+
+	if sync {
+		if _, err = dbOp.Txn.Exec(fmt.Sprintf("DROP TABLE bigdis_%d", dbNum)); err != nil {
+			if err.Error() != fmt.Sprintf("no such table: bigdis_%d", dbNum) {
+				return err
+			}
+		}
+
+		if err := dbOp.endDBOperation(); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	go func() {
+		if _, err = dbOp.Txn.Exec(fmt.Sprintf("DROP TABLE bigdis_%d", dbNum)); err != nil {
+			utils.Print("Error while dropping table: %s\n", err)
+		}
+
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	return nil
 }
