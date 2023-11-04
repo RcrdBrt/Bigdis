@@ -26,14 +26,13 @@ func NewV1Handler() map[string]HandlerFn {
 	}
 
 	m["select"] = func(r *Request) error {
-		dbNum, err := strconv.Atoi(string(r.Args[0]))
+		_, err := strconv.Atoi(string(r.Args[0]))
 		if err != nil {
-			return err
+			return utils.ErrWrongSyntax
 		}
 
-		if err := storage.NewDB(dbNum); err != nil {
-			return err
-		}
+		// GetDBNum() will create a new DB if it doesn't exist
+		_ = r.GetDBNum()
 
 		reply := &StatusReply{
 			Code: "OK",
