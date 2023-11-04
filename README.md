@@ -12,17 +12,17 @@ Bigdis is based on the OG [Bigdis](https://github.com/antirez/Bigdis) (see the c
 
 This is the subset of commands it currently implements:
 
-|Command |Status
---- | --- 
-|`PING`|Fully implemented :heavy_check_mark:|
-|`GET`|Fully implemented :heavy_check_mark:|
-|`SET`|Only setting values and *XX/*/*NX* works, no keys expiration logic as of now :wrench:|
-|`DEL`|Fully implemented :heavy_check_mark:|
-|`GETDEL`|Fully implemented :heavy_check_mark:|
-|`EXISTS`|Fully implemented :heavy_check_mark:|
-|`COMMAND`|Placeholder reply only :wrench:|
-|`SELECT`|Fully implemented :heavy_check_mark:|
-|`FLUSHDB`|Does what expected, but only without arguments :wrench:|
+|Command |Status|Comment
+--- | --- | ---
+|`PING`|:heavy_check_mark|
+|`GET`|:heavy_check_mark|
+|`SET`|:wrench:|Only setting values and *XX* or *NX* work, no keys expiration logic as of now
+|`DEL`|:heavy_check_mark|
+|`GETDEL`|:heavy_check_mark|
+|`EXISTS`|:heavy_check_mark|
+|`COMMAND`|:wrench:|Placeholder reply only
+|`SELECT`|:heavy_check_mark|
+|`FLUSHDB`|:wrench:|Does what expected, but without ASYNC or SYNC options
 
 Nothing other than the string type has been implemented as of now.
 
