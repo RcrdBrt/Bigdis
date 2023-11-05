@@ -23,6 +23,10 @@ This is the subset of commands it currently implements:
 |`COMMAND`|:wrench:|Placeholder reply only
 |`SELECT`|:heavy_check_mark|
 |`FLUSHDB`|:heavy_check_mark:|
+|`GETSET`|:heavy_check_mark:|
+|`FLUSHALL`|:heavy_check_mark:|
+|`STRLEN`|:heavy_check_mark:|
+|`APPEND`|:heavy_check_mark:|
 
 Nothing other than the string type has been implemented as of now.
 

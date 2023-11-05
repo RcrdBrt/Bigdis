@@ -4,12 +4,13 @@ import (
 	"bigdis/utils"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 	var err error
-	dbOp, err = startDBOperation(dbOp)
+	dbOp, err = startDBOperation(dbOp, false)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +33,7 @@ func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 
 func Set(dbNum int, args [][]byte, dbOp *dbOperation) error {
 	var err error
-	dbOp, err = startDBOperation(dbOp)
+	dbOp, err = startDBOperation(dbOp, true)
 	if err != nil {
 		return err
 	}
@@ -90,7 +91,7 @@ func Set(dbNum int, args [][]byte, dbOp *dbOperation) error {
 }
 
 func GetDel(dbNum int, args [][]byte) ([]byte, error) {
-	dbOp, err := startDBOperation(nil)
+	dbOp, err := startDBOperation(nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -113,4 +114,159 @@ func GetDel(dbNum int, args [][]byte) ([]byte, error) {
 	}
 
 	return value, nil
+}
+
+func Incr(dbNum int, args [][]byte) (int, error) {
+	dbOp, err := startDBOperation(nil, true)
+	if err != nil {
+		return 0, err
+	}
+	dbOp.chainDBOperation()
+
+	newValue, err := IncrBy(dbNum, [][]byte{args[0], []byte("1")}, dbOp)
+	if err != nil {
+		return 0, err
+	}
+
+	dbOp.unchainDBOperation()
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return newValue, nil
+}
+
+func IncrBy(dbNum int, args [][]byte, dbOp *dbOperation) (int, error) {
+	var err error
+	dbOp, err = startDBOperation(dbOp, true)
+	if err != nil {
+		return 0, err
+	}
+	wasChained := dbOp.chainDBOperation()
+
+	// check if user input is an integer
+	userIncr, err := strconv.Atoi(string(args[1]))
+	if err != nil {
+		return 0, utils.ErrNotInteger
+	}
+
+	value, err := Get(dbNum, args, dbOp)
+	if err != nil {
+		return 0, err
+	}
+
+	var newValue int
+	if value == nil {
+		newValue = userIncr
+	} else {
+		newValue, err = strconv.Atoi(string(value))
+		if err != nil {
+			return 0, utils.ErrNotInteger
+		}
+		newValue += userIncr
+	}
+
+	args[1] = []byte(strconv.Itoa(newValue))
+
+	if err := Set(dbNum, args, dbOp); err != nil {
+		return 0, err
+	}
+
+	if !wasChained {
+		dbOp.unchainDBOperation()
+	}
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return newValue, nil
+}
+
+func GetSet(dbNum int, args [][]byte) ([]byte, error) {
+	dbOp, err := startDBOperation(nil, true)
+	if err != nil {
+		return nil, err
+	}
+	dbOp.chainDBOperation()
+
+	value, err := Get(dbNum, args, dbOp)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := Set(dbNum, args, dbOp); err != nil {
+		return nil, err
+	}
+
+	dbOp.unchainDBOperation()
+	if err := dbOp.endDBOperation(); err != nil {
+		return nil, err
+	}
+
+	return value, nil
+}
+
+func Strlen(dbNum int, args [][]byte) (int, error) {
+	dbOp, err := startDBOperation(nil, false)
+	if err != nil {
+		return 0, err
+	}
+
+	var length int
+	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT length(value) FROM bigdis_%d WHERE key = ? and type='s'", dbNum), args[0]).Scan(&length); err != nil {
+		if err == sql.ErrNoRows {
+			// check if key exists of type other than string
+			var exists bool
+			if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM bigdis_%d WHERE key = ?)", dbNum), args[0]).Scan(&exists); err != nil {
+				return 0, err
+			}
+
+			if exists {
+				return 0, utils.ErrWrongType
+			}
+
+			return 0, nil
+		}
+
+		return 0, err
+	}
+
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return length, nil
+}
+
+func Append(dbNum int, args [][]byte) (int, error) {
+	dbOp, err := startDBOperation(nil, true)
+	if err != nil {
+		return 0, err
+	}
+	dbOp.chainDBOperation()
+
+	value, err := Get(dbNum, args, dbOp)
+	if err != nil {
+		return 0, err
+	}
+
+	var newValue []byte
+	if value == nil {
+		newValue = args[1]
+	} else {
+		newValue = append(value, args[1]...)
+	}
+
+	args[1] = newValue
+
+	if err := Set(dbNum, args, dbOp); err != nil {
+		return 0, err
+	}
+
+	dbOp.unchainDBOperation()
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return len(newValue), nil
 }

@@ -103,7 +103,17 @@ type ErrorReply struct {
 }
 
 func (r *ErrorReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write([]byte("-ERR " + r.value + "\r\n"))
+	n, err := w.Write([]byte("-" + r.value + "\r\n"))
+
+	return int64(n), err
+}
+
+type WrongTypeReply struct {
+	value string
+}
+
+func (r *WrongTypeReply) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write([]byte("-WRONGTYPE " + r.value + "\r\n"))
 
 	return int64(n), err
 }

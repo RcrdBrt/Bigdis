@@ -203,6 +203,131 @@ func NewV1Handler() map[string]HandlerFn {
 		return nil
 	}
 
+	m["incr"] = func(r *Request) error {
+		if len(r.Args) != 1 {
+			return wrongNumberArgs(r, "incr")
+		}
+
+		value, err := storage.Incr(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["incrby"] = func(r *Request) error {
+		if len(r.Args) != 2 {
+			return wrongNumberArgs(r, "incrby")
+		}
+
+		value, err := storage.IncrBy(r.GetDBNum(), r.Args, nil)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["getset"] = func(r *Request) error {
+		if len(r.Args) != 2 {
+			return wrongNumberArgs(r, "getset")
+		}
+
+		value, err := storage.GetSet(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &BulkReply{
+			value: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["flushall"] = func(r *Request) error {
+		if len(r.Args) > 1 {
+			return wrongNumberArgs(r, "flushall")
+		}
+
+		if err := storage.FlushAll(r.Args); err != nil {
+			return err
+		}
+
+		reply := &StatusReply{
+			Code: "OK",
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["strlen"] = func(r *Request) error {
+		if len(r.Args) != 1 {
+			return wrongNumberArgs(r, "strlen")
+		}
+
+		value, err := storage.Strlen(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["append"] = func(r *Request) error {
+		if len(r.Args) != 2 {
+			return wrongNumberArgs(r, "append")
+		}
+
+		value, err := storage.Append(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
 	return m
 }
 
