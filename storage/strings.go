@@ -278,7 +278,9 @@ func Decr(dbNum int, args [][]byte) (int, error) {
 	}
 	dbOp.chainDBOperation()
 
-	newValue, err := IncrBy(dbNum, [][]byte{args[0], []byte("-1")}, dbOp)
+	args[1] = []byte("-1")
+
+	newValue, err := IncrBy(dbNum, args, dbOp)
 	if err != nil {
 		return 0, err
 	}
@@ -304,25 +306,11 @@ func DecrBy(dbNum int, args [][]byte) (int, error) {
 		return 0, utils.ErrNotInteger
 	}
 
-	value, err := Get(dbNum, args, dbOp)
+	// reverse user input
+	args[1] = []byte(strconv.Itoa(userDecr * -1))
+
+	newValue, err := IncrBy(dbNum, args, dbOp)
 	if err != nil {
-		return 0, err
-	}
-
-	var newValue int
-	if value == nil {
-		newValue = -userDecr
-	} else {
-		newValue, err = strconv.Atoi(string(value))
-		if err != nil {
-			return 0, utils.ErrNotInteger
-		}
-		newValue -= userDecr
-	}
-
-	args[1] = []byte(strconv.Itoa(newValue))
-
-	if err := Set(dbNum, args, dbOp); err != nil {
 		return 0, err
 	}
 
