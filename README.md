@@ -27,6 +27,10 @@ This is the subset of commands it currently implements:
 |`FLUSHALL`|:heavy_check_mark:|
 |`STRLEN`|:heavy_check_mark:|
 |`APPEND`|:heavy_check_mark:|
+|`INCR`|:heavy_check_mark:|
+|`INCRBY`|:heavy_check_mark:|
+|`DECR`|:heavy_check_mark:|
+|`DECRBY`|:heavy_check_mark:|
 
 Nothing other than the string type has been implemented as of now.
 

@@ -270,3 +270,66 @@ func Append(dbNum int, args [][]byte) (int, error) {
 
 	return len(newValue), nil
 }
+
+func Decr(dbNum int, args [][]byte) (int, error) {
+	dbOp, err := startDBOperation(nil, true)
+	if err != nil {
+		return 0, err
+	}
+	dbOp.chainDBOperation()
+
+	newValue, err := IncrBy(dbNum, [][]byte{args[0], []byte("-1")}, dbOp)
+	if err != nil {
+		return 0, err
+	}
+
+	dbOp.unchainDBOperation()
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return newValue, nil
+}
+
+func DecrBy(dbNum int, args [][]byte) (int, error) {
+	dbOp, err := startDBOperation(nil, true)
+	if err != nil {
+		return 0, err
+	}
+	dbOp.chainDBOperation()
+
+	// check if user input is an integer
+	userDecr, err := strconv.Atoi(string(args[1]))
+	if err != nil {
+		return 0, utils.ErrNotInteger
+	}
+
+	value, err := Get(dbNum, args, dbOp)
+	if err != nil {
+		return 0, err
+	}
+
+	var newValue int
+	if value == nil {
+		newValue = -userDecr
+	} else {
+		newValue, err = strconv.Atoi(string(value))
+		if err != nil {
+			return 0, utils.ErrNotInteger
+		}
+		newValue -= userDecr
+	}
+
+	args[1] = []byte(strconv.Itoa(newValue))
+
+	if err := Set(dbNum, args, dbOp); err != nil {
+		return 0, err
+	}
+
+	dbOp.unchainDBOperation()
+	if err := dbOp.endDBOperation(); err != nil {
+		return 0, err
+	}
+
+	return newValue, nil
+}

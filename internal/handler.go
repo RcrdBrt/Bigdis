@@ -328,6 +328,48 @@ func NewV1Handler() map[string]HandlerFn {
 		return nil
 	}
 
+	m["decr"] = func(r *Request) error {
+		if len(r.Args) != 1 {
+			return wrongNumberArgs(r, "decr")
+		}
+
+		value, err := storage.Decr(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["decrby"] = func(r *Request) error {
+		if len(r.Args) != 2 {
+			return wrongNumberArgs(r, "decrby")
+		}
+
+		value, err := storage.DecrBy(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: value,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
 	return m
 }
 
