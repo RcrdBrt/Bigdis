@@ -31,6 +31,10 @@ This is the subset of commands it currently implements:
 |`INCRBY`|:heavy_check_mark:|
 |`DECR`|:heavy_check_mark:|
 |`DECRBY`|:heavy_check_mark:|
+|`MSET`|:wrench:|
+|`MGET`|:wrench:|
+|`MSETNX`|:heavy_check_mark:|
+|`SETNX`|:heavy_check_mark:|
 
 Nothing other than the string type has been implemented as of now.
 

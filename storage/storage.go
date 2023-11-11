@@ -69,7 +69,7 @@ func Init() {
 	}
 
 	// scan existing tables for available DBs
-	rows, err := DBrp.Query("SELECT name FROM main.sqlite_schema WHERE type='table'")
+	rows, err := DBrp.Query("SELECT name FROM main.sqlite_schema WHERE type='table' and name like 'bigdis_%'")
 	if err != nil {
 		panic(err)
 	}

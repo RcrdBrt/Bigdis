@@ -370,6 +370,89 @@ func NewV1Handler() map[string]HandlerFn {
 		return nil
 	}
 
+	m["mget"] = func(r *Request) error {
+		if len(r.Args) < 1 {
+			return wrongNumberArgs(r, "mget")
+		}
+
+		values, err := storage.MGet(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &MultiBulkReply{
+			values: values,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["mset"] = func(r *Request) error {
+		if len(r.Args) < 2 || len(r.Args)%2 != 0 {
+			return wrongNumberArgs(r, "mset")
+		}
+
+		if err := storage.MSet(r.GetDBNum(), r.Args, nil); err != nil {
+			return err
+		}
+
+		reply := &StatusReply{
+			Code: "OK",
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["msetnx"] = func(r *Request) error {
+		if len(r.Args) < 2 || len(r.Args)%2 != 0 {
+			return wrongNumberArgs(r, "msetnx")
+		}
+
+		result, err := storage.MSetNX(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: result,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	m["setnx"] = func(r *Request) error {
+		if len(r.Args) != 2 {
+			return wrongNumberArgs(r, "setnx")
+		}
+
+		result, err := storage.SetNX(r.GetDBNum(), r.Args)
+		if err != nil {
+			return err
+		}
+
+		reply := &IntegerReply{
+			number: result,
+		}
+
+		if _, err := reply.WriteTo(r.Conn); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
 	return m
 }
 
