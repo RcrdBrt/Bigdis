@@ -109,7 +109,8 @@ func NewDB(dbNum int) error {
 			value BLOB NOT NULL,
 			type TEXT NOT NULL,
 			created datetime default current_timestamp,
-			updated datetime default current_timestamp)`, dbNum))
+			updated datetime default current_timestamp),
+			exp datetime`, dbNum))
 	if err != nil {
 		return err
 	}
