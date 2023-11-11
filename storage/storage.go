@@ -104,7 +104,8 @@ func Init() {
 func NewDB(dbNum int) error {
 	_, err := DBwp.Exec(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS bigdis_%d (
-			key TEXT PRIMARY KEY,
+			id INTEGER PRIMARY KEY,
+			key TEXT UNIQUE NOT NULL,
 			value BLOB NOT NULL,
 			type TEXT NOT NULL,
 			created datetime default current_timestamp,
