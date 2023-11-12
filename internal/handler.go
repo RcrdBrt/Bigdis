@@ -85,6 +85,17 @@ func NewV1Handler() map[string]HandlerFn {
 
 		replyBytes, err := storage.Set(r.GetDBNum(), r.Args, nil)
 		if err != nil {
+			if err == utils.ErrSyntaxError {
+				reply := &ErrorReply{
+					value: err.Error(),
+				}
+
+				if _, err := reply.WriteTo(r.Conn); err != nil {
+					return err
+				}
+
+				return nil
+			}
 			return err
 		}
 
