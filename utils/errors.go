@@ -3,7 +3,8 @@ package utils
 import "errors"
 
 var (
-	ErrWrongSyntax  = errors.New("wrong command syntax")
+	ErrSyntaxError  = errors.New("ERR syntax error")
+	ErrWrongSyntax  = errors.New("ERR wrong command syntax")
 	ErrNotFound     = errors.New("(nil)")
 	WrongNumberArgs = "wrong number of arguments for '%s' command"
 	ErrNotInteger   = errors.New("ERR value is not an integer or out of range")
