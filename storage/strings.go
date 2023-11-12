@@ -37,7 +37,7 @@ func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 		return nil, utils.ErrWrongType
 	}
 
-	if exp.Valid && exp.Time.Before(time.Now().UTC()) {
+	if exp.Valid && exp.Time.UTC().Before(time.Now().Local()) {
 		return nil, nil
 	}
 
@@ -72,7 +72,7 @@ func Set(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 			INSERT INTO bigdis_%d (key, value, type) VALUES (?, ?, 's')
 			ON CONFLICT(key) DO UPDATE SET
 				value = ?,
-				updated = datetime('now', 'UTC')
+				updated = current_timestamp
 			where key = ?`, dbNum), args[0], args[1], args[1], args[0]); err != nil {
 			return replyBytes, err
 		}
@@ -155,21 +155,19 @@ parse_args:
 			return replyBytes, utils.ErrSyntaxError
 		}
 
-		// convert to unix timestamp
-
 		// convert to time.Time, userExp can be seconds or milliseconds
 		var userExpTime time.Time
 		if expirationSeconds {
-			userExpTime = time.Unix(time.Now().UTC().Unix()+userExp, 0).UTC()
+			userExpTime = time.Unix(time.Now().Unix()+userExp, 0).UTC()
 		} else {
-			userExpTime = time.Unix(time.Now().UTC().Unix(), userExp*1000000).UTC()
+			userExpTime = time.Unix(time.Now().Unix(), userExp*1000000).UTC()
 		}
 
 		if _, err := dbOp.Txn.Exec(fmt.Sprintf(`
 			INSERT INTO bigdis_%d (key, value, type, exp) VALUES (?, ?, 's', ?)
 			ON CONFLICT(key) DO UPDATE SET
 				value = ?,
-				updated = datetime('now', 'UTC'),
+				updated = current_timestamp,
 				exp = ?
 			where key = ?`, dbNum), args[0], args[1], userExpTime, args[1], userExpTime, args[0]); err != nil {
 			return replyBytes, err
@@ -224,7 +222,7 @@ parse_args:
 			INSERT INTO bigdis_%d (key, value, type, exp) VALUES (?, ?, 's', ?)
 			ON CONFLICT(key) DO UPDATE SET
 				value = ?,
-				updated = datetime('now', 'UTC'),
+				updated = current_timestamp,
 				exp = ?
 			where key = ?`, dbNum), args[0], args[1], userExpTime, args[1], userExpTime, args[0]); err != nil {
 			return replyBytes, err
@@ -398,11 +396,11 @@ func Strlen(dbNum int, args [][]byte) (int, error) {
 	}()
 
 	var length int
-	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT length(value) FROM bigdis_%d WHERE key = ? and type='s' and exp >= datetime('now', 'UTC')", dbNum), args[0]).Scan(&length); err != nil {
+	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT length(value) FROM bigdis_%d WHERE key = ? and type='s' and exp >= current_timestamp", dbNum), args[0]).Scan(&length); err != nil {
 		if err == sql.ErrNoRows {
 			// check if key exists of type other than string
 			var exists bool
-			if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM bigdis_%d WHERE key = ? and exp >= datetime('now', 'UTC'))", dbNum), args[0]).Scan(&exists); err != nil {
+			if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM bigdis_%d WHERE key = ? and exp >= current_timestamp)", dbNum), args[0]).Scan(&exists); err != nil {
 				return 0, err
 			}
 
@@ -526,7 +524,7 @@ func MGet(dbNum int, args [][]byte) ([]any, error) {
 		}
 	}()
 
-	rows, err := dbOp.Txn.Query(fmt.Sprintf("SELECT key, value FROM bigdis_%d WHERE key IN (%s) and exp >= datetime('now', 'UTC')", dbNum, strings.Repeat("?,", len(args)-1)+"?"), anyArgs...)
+	rows, err := dbOp.Txn.Query(fmt.Sprintf("SELECT key, value FROM bigdis_%d WHERE key IN (%s) and exp >= current_timestamp", dbNum, strings.Repeat("?,", len(args)-1)+"?"), anyArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +583,7 @@ func MSet(dbNum int, args [][]byte, dbOp *dbOperation) error {
 		INSERT INTO bigdis_%d (key, value, type) VALUES %s
 		ON CONFLICT(key) DO UPDATE SET
 			value = excluded.value,
-			updated = datetime('now', 'UTC')`, dbNum, strings.Repeat("(?, ?, 's'),", len(args)/2-1)+"(?, ?, 's')"), anyArgs...); err != nil {
+			updated = current_timestamp`, dbNum, strings.Repeat("(?, ?, 's'),", len(args)/2-1)+"(?, ?, 's')"), anyArgs...); err != nil {
 		return err
 	}
 

@@ -105,10 +105,21 @@ func Init() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(config.Config.Storage.GCInterval) * time.Second)
 		for {
+			var gcKeys int64
 			for dbNum := range AvailableDBs {
-				if _, err := DBwp.Exec(fmt.Sprintf("DELETE FROM bigdis_%d WHERE exp < datetime('now', 'UTC')", dbNum)); err != nil {
+				if rows, err := DBwp.Exec(fmt.Sprintf("DELETE FROM bigdis_%d WHERE exp < current_timestamp", dbNum)); err != nil {
 					utils.Print("Error while deleting expired keys: %s\n", err)
+				} else {
+					if rowsAffected, err := rows.RowsAffected(); err != nil {
+						utils.Print("Error while getting rows affected: %s\n", err)
+					} else {
+						gcKeys += rowsAffected
+					}
 				}
+			}
+
+			if gcKeys > 0 {
+				utils.Print("Garbage collected %d expired keys", gcKeys)
 			}
 
 			<-ticker.C
@@ -123,8 +134,8 @@ func NewDB(dbNum int) error {
 			key TEXT UNIQUE NOT NULL,
 			value BLOB NOT NULL,
 			type TEXT NOT NULL,
-			created datetime default (datetime('now', 'UTC')),
-			updated datetime default (datetime('now', 'UTC')),
+			created datetime default current_timestamp,
+			updated datetime default current_timestamp,
 			exp datetime)
 			`, dbNum))
 	if err != nil {
