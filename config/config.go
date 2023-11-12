@@ -19,6 +19,7 @@ var Config struct {
 		Path        string `json:"path"`
 		JournalMode string `json:"journal_mode"`
 		Synchronous string `json:"synchronous"`
+		GCInterval  int    `json:"gc_interval"`
 	} `json:"storage"`
 }
 
