@@ -17,7 +17,7 @@ This is the subset of commands it currently implements:
 |`COMMAND`|:wrench:|Placeholder reply only
 |`PING`|:heavy_check_mark:|
 |`GET`|:heavy_check_mark:|
-|`SET`|:heavy_check_mark:|
+|`SET`|:wrench:|Buggy UTC handling for the expiration, buggy set-get handling
 |`DEL`|:heavy_check_mark|
 |`GETDEL`|:heavy_check_mark:|
 |`EXISTS`|:heavy_check_mark:|
