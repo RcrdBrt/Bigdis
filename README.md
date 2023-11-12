@@ -14,14 +14,14 @@ This is the subset of commands it currently implements:
 
 |Command |Status|Comment
 --- | --- | ---
-|`PING`|:heavy_check_mark|
-|`GET`|:heavy_check_mark|
-|`SET`|:wrench:|Only setting values and *XX* or *NX* work, no keys expiration logic as of now
-|`DEL`|:heavy_check_mark|
-|`GETDEL`|:heavy_check_mark|
-|`EXISTS`|:heavy_check_mark|
 |`COMMAND`|:wrench:|Placeholder reply only
-|`SELECT`|:heavy_check_mark|
+|`PING`|:heavy_check_mark:|
+|`GET`|:heavy_check_mark:|
+|`SET`|:heavy_check_mark:|
+|`DEL`|:heavy_check_mark|
+|`GETDEL`|:heavy_check_mark:|
+|`EXISTS`|:heavy_check_mark:|
+|`SELECT`|:heavy_check_mark:|
 |`FLUSHDB`|:heavy_check_mark:|
 |`GETSET`|:heavy_check_mark:|
 |`FLUSHALL`|:heavy_check_mark:|
@@ -31,8 +31,8 @@ This is the subset of commands it currently implements:
 |`INCRBY`|:heavy_check_mark:|
 |`DECR`|:heavy_check_mark:|
 |`DECRBY`|:heavy_check_mark:|
-|`MSET`|:wrench:|
-|`MGET`|:wrench:|
+|`MSET`|:heavy_check_mark:|
+|`MGET`|:heavy_check_mark:|
 |`MSETNX`|:heavy_check_mark:|
 |`SETNX`|:heavy_check_mark:|
 

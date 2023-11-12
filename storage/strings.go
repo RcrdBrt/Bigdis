@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
@@ -15,9 +16,16 @@ func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	var value []byte
-	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT value FROM bigdis_%d WHERE key = ?", dbNum), args[0]).Scan(&value); err != nil {
+	var exp sql.NullTime
+	var keyType string
+	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT value, exp, type FROM bigdis_%d WHERE key = ?", dbNum), args[0]).Scan(&value, &exp, &keyType); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -25,70 +33,232 @@ func Get(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := dbOp.endDBOperation(); err != nil {
-		return nil, err
+	if keyType != "s" {
+		return nil, utils.ErrWrongType
+	}
+
+	if exp.Valid && exp.Time.Before(time.Now().UTC()) {
+		return nil, nil
 	}
 
 	return value, nil
 }
 
-func Set(dbNum int, args [][]byte, dbOp *dbOperation) error {
+/*
+set returns bulkReplyValue in form of []byte and error.
+In case of error, bulkReplyValue is nil.
+
+set could write a statusreply or a bulk reply (get parameter of the set command).
+*/
+func Set(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
+	var replyBytes []byte
 	var err error
 	dbOp, err = startDBOperation(dbOp, true)
 	if err != nil {
-		return err
+		return replyBytes, err
+	}
+	wasChained := dbOp.chainDBOperation()
+	defer func() {
+		if !wasChained {
+			dbOp.unchainDBOperation()
+		}
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
+
+	if len(args) == 2 {
+		if _, err := dbOp.Txn.Exec(fmt.Sprintf(`
+			INSERT INTO bigdis_%d (key, value, type) VALUES (?, ?, 's')
+			ON CONFLICT(key) DO UPDATE SET
+				value = ?,
+				updated = current_timestamp
+			where key = ?`, dbNum), args[0], args[1], args[1], args[0]); err != nil {
+			return replyBytes, err
+		}
+
+		return replyBytes, nil
 	}
 
-	switch len(args) {
-	case 0:
+	// extended set command features, expensive operation
+	count, err := Exists(dbNum, [][]byte{args[0]}, dbOp)
+	if err != nil {
+		return replyBytes, err
+	}
+
+	var currentArg = 1
+	setGrammar := make(map[string]struct{})
+	setGrammar["existence"] = struct{}{}
+	setGrammar["expiration"] = struct{}{}
+	setGrammar["get"] = struct{}{}
+	var expirationSeconds bool
+
+parse_args:
+	currentArg++
+	if currentArg >= len(args) {
+		dbOp.unchainDBOperation()
+		return replyBytes, nil
+	}
+
+	switch strings.ToLower(string((args[currentArg]))) {
+	case "nx":
+		if _, ok := setGrammar["existence"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+		delete(setGrammar, "existence")
+
+		if count > 0 {
+			replyBytes = []byte{}
+			return replyBytes, nil
+		}
+
+		if _, err := Set(dbNum, [][]byte{args[0], args[1]}, dbOp); err != nil {
+			return replyBytes, err
+		}
+
+		goto parse_args
+	case "xx":
+		if _, ok := setGrammar["existence"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+		delete(setGrammar, "existence")
+
+		if count == 0 {
+			replyBytes = []byte{}
+			return replyBytes, nil
+		}
+
+		if _, err := Set(dbNum, [][]byte{args[0], args[1]}, dbOp); err != nil {
+			return replyBytes, err
+		}
+
+		goto parse_args
+	case "ex":
+		expirationSeconds = true
 		fallthrough
-	case 1:
-		return utils.ErrWrongSyntax
-	case 2:
-		_, err := dbOp.Txn.Exec(fmt.Sprintf(`
-		INSERT INTO bigdis_%d (key, value, type) VALUES (?, ?, 's')
-		ON CONFLICT(key) DO UPDATE SET
-			value = ?,
-			updated = current_timestamp`, dbNum), args[0], args[1], args[1])
-		if err != nil {
-			return err
+	case "px":
+		if _, ok := setGrammar["expiration"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
 		}
-	case 3:
-		count, err := Exists(dbNum, [][]byte{args[0]}, dbOp)
-		if err != nil {
-			return err
+		delete(setGrammar, "expiration")
+
+		// ex and px need an argument
+		if currentArg+1 >= len(args) {
+			return replyBytes, utils.ErrWrongSyntax
 		}
 
-		if strings.ToLower(string((args[2]))) == "nx" {
-			if count > 0 {
-				return nil
-			}
-			_, err := dbOp.Txn.Exec(fmt.Sprintf(`
-				INSERT INTO bigdis_%d (key, value, type) VALUES (?, ?, 's')
-			`, dbNum), args[0], args[1])
-			if err != nil {
-				return err
-			}
-		} else if strings.ToLower(string((args[2]))) == "xx" {
-			if count == 0 {
-				return nil
-			}
-			_, err := dbOp.Txn.Exec(fmt.Sprintf(`
-				update bigdis_%d set value = ?, updated = current_timestamp where key = ?
-			`, dbNum), args[1], args[0])
-			if err != nil {
-				return err
-			}
+		// check if user input is an integer
+		//
+		// not using Atoi so no need to convert back and forth to int64 for later calls
+		userExp, err := strconv.ParseInt(string(args[currentArg+1]), 10, 64)
+		if err != nil {
+			return replyBytes, utils.ErrSyntaxError
+		}
+
+		// convert to unix timestamp
+
+		// convert to time.Time, userExp can be seconds or milliseconds
+		var userExpTime time.Time
+		if expirationSeconds {
+			userExpTime = time.Unix(time.Now().UTC().Unix()+userExp, 0)
 		} else {
-			return utils.ErrWrongSyntax
+			userExpTime = time.Unix(time.Now().UTC().Unix(), userExp*1000000)
 		}
+
+		if _, err := dbOp.Txn.Exec(fmt.Sprintf(`
+			INSERT INTO bigdis_%d (key, value, type, exp) VALUES (?, ?, 's', ?)
+			ON CONFLICT(key) DO UPDATE SET
+				value = ?,
+				updated = current_timestamp,
+				exp = ?
+			where key = ?`, dbNum), args[0], args[1], userExpTime, args[1], userExpTime, args[0]); err != nil {
+			return replyBytes, err
+		}
+
+		goto parse_args
+	case "keepttl":
+		if _, ok := setGrammar["expiration"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+		delete(setGrammar, "expiration")
+
+		// just insert, disregard the expiration
+		if _, err := Set(dbNum, [][]byte{args[0], args[1]}, dbOp); err != nil {
+			return replyBytes, err
+		}
+
+		goto parse_args
+	case "exat":
+		expirationSeconds = true
+		fallthrough
+	case "pxat":
+		if _, ok := setGrammar["expiration"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+		delete(setGrammar, "expiration")
+
+		// exat and pxat need an argument
+		if currentArg+1 >= len(args) {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+
+		// check if user input is an integer
+		//
+		// not using Atoi so no need to convert back and forth to int64 for later calls
+		userExp, err := strconv.ParseInt(string(args[currentArg+1]), 10, 64)
+		if err != nil {
+			return replyBytes, utils.ErrSyntaxError
+		}
+
+		// convert to time.Time, userExp can be seconds or milliseconds
+		var userExpTime time.Time
+		if expirationSeconds {
+			userExpTime = time.Unix(userExp, 0)
+		} else {
+			userExpTime = time.Unix(0, userExp*1000000)
+		}
+
+		if _, err := dbOp.Txn.Exec(fmt.Sprintf(`
+			INSERT INTO bigdis_%d (key, value, type, exp) VALUES (?, ?, 's', ?)
+			ON CONFLICT(key) DO UPDATE SET
+				value = ?,
+				updated = current_timestamp,
+				exp = ?
+			where key = ?`, dbNum), args[0], args[1], userExpTime, args[1], userExpTime, args[0]); err != nil {
+			return replyBytes, err
+		}
+
+		goto parse_args
+	case "get":
+		if _, ok := setGrammar["get"]; !ok {
+			return replyBytes, utils.ErrWrongSyntax
+		}
+		delete(setGrammar, "get")
+
+		value, err := GetSet(dbNum, [][]byte{args[0], args[1]}, dbOp)
+		if err != nil {
+			if err := dbOp.Txn.Rollback(); err != nil {
+				return replyBytes, err
+			}
+
+			return replyBytes, err
+		}
+
+		if len(value) > 0 {
+			replyBytes = value
+		} else {
+			// Return bulk reply with nil to the client.
+			// Non-nil empty slice is to signal to the handler
+			// that a bulk reply is needed
+			replyBytes = []byte{}
+		}
+
+		goto parse_args
+	default:
+		return replyBytes, utils.ErrWrongSyntax
 	}
 
-	if err := dbOp.endDBOperation(); err != nil {
-		return err
-	}
-
-	return nil
+	return replyBytes, nil
 }
 
 func GetDel(dbNum int, args [][]byte) ([]byte, error) {
@@ -97,6 +267,12 @@ func GetDel(dbNum int, args [][]byte) ([]byte, error) {
 		return nil, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	value, err := Get(dbNum, args, dbOp)
 	if err != nil {
@@ -109,11 +285,6 @@ func GetDel(dbNum int, args [][]byte) ([]byte, error) {
 		return nil, err
 	}
 
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
-		return nil, err
-	}
-
 	return value, nil
 }
 
@@ -123,14 +294,15 @@ func Incr(dbNum int, args [][]byte) (int, error) {
 		return 0, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	newValue, err := IncrBy(dbNum, [][]byte{args[0], []byte("1")}, dbOp)
 	if err != nil {
-		return 0, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
 		return 0, err
 	}
 
@@ -144,6 +316,15 @@ func IncrBy(dbNum int, args [][]byte, dbOp *dbOperation) (int, error) {
 		return 0, err
 	}
 	wasChained := dbOp.chainDBOperation()
+	dbOp.chainDBOperation()
+	defer func() {
+		if !wasChained {
+			dbOp.unchainDBOperation()
+		}
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	// check if user input is an integer
 	userIncr, err := strconv.Atoi(string(args[1]))
@@ -169,38 +350,34 @@ func IncrBy(dbNum int, args [][]byte, dbOp *dbOperation) (int, error) {
 
 	args[1] = []byte(strconv.Itoa(newValue))
 
-	if err := Set(dbNum, args, dbOp); err != nil {
-		return 0, err
-	}
-
-	if !wasChained {
-		dbOp.unchainDBOperation()
-	}
-	if err := dbOp.endDBOperation(); err != nil {
+	if _, err := Set(dbNum, args, dbOp); err != nil {
 		return 0, err
 	}
 
 	return newValue, nil
 }
 
-func GetSet(dbNum int, args [][]byte) ([]byte, error) {
-	dbOp, err := startDBOperation(nil, true)
+func GetSet(dbNum int, args [][]byte, dbOp *dbOperation) ([]byte, error) {
+	dbOp, err := startDBOperation(dbOp, true)
 	if err != nil {
 		return nil, err
 	}
-	dbOp.chainDBOperation()
+	wasChained := dbOp.chainDBOperation()
+	defer func() {
+		if !wasChained {
+			dbOp.unchainDBOperation()
+		}
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	value, err := Get(dbNum, args, dbOp)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := Set(dbNum, args, dbOp); err != nil {
-		return nil, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
+	if _, err := Set(dbNum, args, dbOp); err != nil {
 		return nil, err
 	}
 
@@ -212,6 +389,11 @@ func Strlen(dbNum int, args [][]byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer func() {
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	var length int
 	if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT length(value) FROM bigdis_%d WHERE key = ? and type='s'", dbNum), args[0]).Scan(&length); err != nil {
@@ -245,6 +427,12 @@ func Append(dbNum int, args [][]byte) (int, error) {
 		return 0, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	value, err := Get(dbNum, args, dbOp)
 	if err != nil {
@@ -260,12 +448,7 @@ func Append(dbNum int, args [][]byte) (int, error) {
 
 	args[1] = newValue
 
-	if err := Set(dbNum, args, dbOp); err != nil {
-		return 0, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
+	if _, err := Set(dbNum, args, dbOp); err != nil {
 		return 0, err
 	}
 
@@ -278,16 +461,17 @@ func Decr(dbNum int, args [][]byte) (int, error) {
 		return 0, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	args[1] = []byte("-1")
 
 	newValue, err := IncrBy(dbNum, args, dbOp)
 	if err != nil {
-		return 0, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
 		return 0, err
 	}
 
@@ -300,6 +484,12 @@ func DecrBy(dbNum int, args [][]byte) (int, error) {
 		return 0, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	// check if user input is an integer
 	userDecr, err := strconv.Atoi(string(args[1]))
@@ -312,11 +502,6 @@ func DecrBy(dbNum int, args [][]byte) (int, error) {
 
 	newValue, err := IncrBy(dbNum, args, dbOp)
 	if err != nil {
-		return 0, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
 		return 0, err
 	}
 
@@ -333,6 +518,11 @@ func MGet(dbNum int, args [][]byte) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	rows, err := dbOp.Txn.Query(fmt.Sprintf("SELECT key, value FROM bigdis_%d WHERE key IN (%s)", dbNum, strings.Repeat("?,", len(args)-1)+"?"), anyArgs...)
 	if err != nil {
@@ -367,10 +557,6 @@ func MGet(dbNum int, args [][]byte) ([]any, error) {
 		}
 	}
 
-	if err := dbOp.endDBOperation(); err != nil {
-		return nil, err
-	}
-
 	return values, nil
 }
 
@@ -385,6 +571,11 @@ func MSet(dbNum int, args [][]byte, dbOp *dbOperation) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	// insert all keys and values in one shot
 
@@ -393,10 +584,6 @@ func MSet(dbNum int, args [][]byte, dbOp *dbOperation) error {
 		ON CONFLICT(key) DO UPDATE SET
 			value = excluded.value,
 			updated = current_timestamp`, dbNum, strings.Repeat("(?, ?, 's'),", len(args)/2-1)+"(?, ?, 's')"), anyArgs...); err != nil {
-		return err
-	}
-
-	if err := dbOp.endDBOperation(); err != nil {
 		return err
 	}
 
@@ -414,6 +601,12 @@ func MSetNX(dbNum int, args [][]byte) (int, error) {
 		return 0, err
 	}
 	dbOp.chainDBOperation()
+	defer func() {
+		dbOp.unchainDBOperation()
+		if err := dbOp.endDBOperation(); err != nil {
+			utils.Print("Error while ending DB operation: %s\n", err)
+		}
+	}()
 
 	// check if any of the keys exist
 	count, err := Exists(dbNum, keys, dbOp)
@@ -426,11 +619,6 @@ func MSetNX(dbNum int, args [][]byte) (int, error) {
 	}
 
 	if err := MSet(dbNum, args, dbOp); err != nil {
-		return 0, err
-	}
-
-	dbOp.unchainDBOperation()
-	if err := dbOp.endDBOperation(); err != nil {
 		return 0, err
 	}
 

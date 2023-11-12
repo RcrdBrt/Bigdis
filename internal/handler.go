@@ -83,12 +83,24 @@ func NewV1Handler() map[string]HandlerFn {
 			return wrongNumberArgs(r, "set")
 		}
 
-		if err := storage.Set(r.GetDBNum(), r.Args, nil); err != nil {
+		replyBytes, err := storage.Set(r.GetDBNum(), r.Args, nil)
+		if err != nil {
 			return err
 		}
 
-		reply := &StatusReply{
-			Code: "OK",
+		var reply ReplyWriter
+		if replyBytes != nil {
+			if len(replyBytes) == 0 {
+				replyBytes = nil
+			}
+
+			reply = &BulkReply{
+				value: replyBytes,
+			}
+		} else {
+			reply = &StatusReply{
+				Code: "OK",
+			}
 		}
 
 		if _, err := reply.WriteTo(r.Conn); err != nil {
@@ -250,7 +262,7 @@ func NewV1Handler() map[string]HandlerFn {
 			return wrongNumberArgs(r, "getset")
 		}
 
-		value, err := storage.GetSet(r.GetDBNum(), r.Args)
+		value, err := storage.GetSet(r.GetDBNum(), r.Args, nil)
 		if err != nil {
 			return err
 		}
