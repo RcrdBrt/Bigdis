@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -99,6 +100,20 @@ func Init() {
 	} else {
 		fmt.Printf("Detected non-empty DBs: %v\n", detectedDBs)
 	}
+
+	// garbage collect expired keys
+	go func() {
+		ticker := time.NewTicker(time.Duration(config.Config.Storage.GCInterval) * time.Second)
+		for {
+			for dbNum := range AvailableDBs {
+				if _, err := DBwp.Exec(fmt.Sprintf("DELETE FROM bigdis_%d WHERE exp < current_timestamp", dbNum)); err != nil {
+					utils.Print("Error while deleting expired keys: %s\n", err)
+				}
+			}
+
+			<-ticker.C
+		}
+	}()
 }
 
 func NewDB(dbNum int) error {
@@ -109,8 +124,9 @@ func NewDB(dbNum int) error {
 			value BLOB NOT NULL,
 			type TEXT NOT NULL,
 			created datetime default current_timestamp,
-			updated datetime default current_timestamp),
-			exp datetime`, dbNum))
+			updated datetime default current_timestamp,
+			exp datetime)
+			`, dbNum))
 	if err != nil {
 		return err
 	}
@@ -169,7 +185,11 @@ func Exists(dbNum int, args [][]byte, dbOp *dbOperation) (int, error) {
 	var count int
 	for i := range args {
 		var exists bool
-		if err := dbOp.Txn.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM bigdis_%d WHERE key = ?)", dbNum), args[i]).Scan(&exists); err != nil {
+		if err := dbOp.Txn.QueryRow(fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM bigdis_%d
+				WHERE key = ?
+					and exp >= current_timestamp)`, dbNum), args[i]).Scan(&exists); err != nil {
 			return 0, err
 		}
 
