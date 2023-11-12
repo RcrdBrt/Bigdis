@@ -8,6 +8,6 @@
         "path": "./bigdis.db",
         "journal_mode": "wal",
         "synchronous": "normal",
-        "gc_interval": 10000
+        "gc_interval": 100
     }
 }
